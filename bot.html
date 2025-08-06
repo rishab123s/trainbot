@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technical Analysis Trading Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .rating-buy { color: #22c55e; }
+        .rating-sell { color: #ef4444; }
+        .rating-hold { color: #eab308; }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            margin-top: -25px;
+            margin-left: -25px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .info-icon {
+            cursor: pointer;
+            display: inline-block;
+            margin-left: 8px;
+            color: #9ca3af;
+            border: 1px solid #9ca3af;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            text-align: center;
+            line-height: 18px;
+            font-style: italic;
+            font-weight: bold;
+        }
+        .info-tooltip {
+            display: none;
+            position: absolute;
+            background-color: #1f2937;
+            color: #e5e7eb;
+            border: 1px solid #4b5563;
+            padding: 10px;
+            border-radius: 8px;
+            z-index: 100;
+            width: 250px;
+            font-size: 0.875rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            right: 10px; /* Position tooltip to the right */
+        }
+        .chart-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-500">Trading Signal Bot</h1>
+            <p class="text-gray-400 mt-2">Analyze stock trends with technical indicators</p>
+        </header>
+
+        <main>
+            <!-- Market Sentiment Section -->
+            <div id="sentiment-section" class="bg-gray-800 rounded-lg shadow-lg p-4 mb-8 max-w-2xl mx-auto text-center">
+                 <h2 class="text-xl font-semibold mb-2">Market Sentiment (S&P 500)</h2>
+                 <div id="sentiment-indicator" class="text-2xl font-bold text-gray-400">Loading...</div>
+            </div>
+
+            <!-- Favorites Section -->
+            <div id="favorites-section" class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8 max-w-2xl mx-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-semibold">Favorites</h2>
+                    <button id="refreshFavorites" class="text-blue-400 hover:text-blue-300 text-sm">Refresh All</button>
+                </div>
+                <div id="favorites-list" class="space-y-3">
+                    <!-- Favorites will be dynamically inserted here -->
+                </div>
+            </div>
+
+            <!-- Input Section -->
+            <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8 max-w-2xl mx-auto">
+                <div class="flex flex-col sm:flex-row gap-4 items-center">
+                    <div class="flex-grow w-full">
+                        <label for="ticker" class="sr-only">Stock Ticker</label>
+                        <input type="text" id="ticker" class="w-full bg-gray-700 text-white border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Enter Stock Ticker (e.g., AAPL)">
+                    </div>
+                    <button id="fetchData" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md transition duration-300 ease-in-out transform hover:scale-105">
+                        Analyze
+                    </button>
+                </div>
+                 <div class="text-xs text-gray-500 mt-2 text-center">
+                    Uses Alpha Vantage API. Free tier has limitations.
+                </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div id="loader" class="loader hidden"></div>
+
+            <!-- Results Section -->
+            <div id="results" class="hidden">
+                <!-- Rating Display -->
+                <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8 text-center">
+                    <div class="flex justify-center items-center gap-4">
+                         <h2 class="text-2xl font-semibold" id="stockName"></h2>
+                         <button id="toggleFavoriteBtn" class="text-yellow-400 hover:text-yellow-300 text-2xl" title="Add to Favorites">☆</button>
+                    </div>
+                    <p class="text-5xl font-bold" id="rating"></p>
+                    <p class="text-gray-400 mt-2" id="rating-explanation"></p>
+                    <p class="text-xs text-gray-500 mt-4" id="markers-explanation"></p>
+                </div>
+
+                <!-- Charts Section -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Price and Volatility Chart -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg p-4 relative h-80">
+                        <div class="chart-container">
+                            <h3 class="text-lg font-semibold text-center mb-2">Price & Volatility <span class="info-icon" data-tooltip="price-tooltip">i</span></h3>
+                            <canvas id="priceChart"></canvas>
+                            <div id="price-tooltip" class="info-tooltip">
+                                This chart shows price with Bollinger Bands (the shaded area). These bands measure volatility. When price hits the upper band, it may be overbought; when it hits the lower band, it may be oversold. The lines are moving averages (SMAs) that show the trend.
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Volume Chart -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg p-4 relative h-80">
+                         <div class="chart-container">
+                            <h3 class="text-lg font-semibold text-center mb-2">Volume <span class="info-icon" data-tooltip="volume-tooltip">i</span></h3>
+                            <canvas id="volumeChart"></canvas>
+                             <div id="volume-tooltip" class="info-tooltip">
+                                Volume represents the number of shares traded. High volume can confirm the strength of a price trend. For example, a price increase on high volume is more significant than one on low volume. The line shows the 20-day average volume.
+                            </div>
+                        </div>
+                    </div>
+                    <!-- RSI Chart -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg p-4 relative h-80">
+                        <div class="chart-container">
+                            <h3 class="text-lg font-semibold text-center mb-2">Relative Strength Index (RSI) <span class="info-icon" data-tooltip="rsi-tooltip">i</span></h3>
+                            <canvas id="rsiChart"></canvas>
+                             <div id="rsi-tooltip" class="info-tooltip">
+                                RSI is a momentum oscillator. A stock is generally considered overbought (and may be due for a pullback) when RSI is above 70, and oversold (and may be due for a bounce) when it's below 30.
+                            </div>
+                        </div>
+                    </div>
+                    <!-- MACD Chart -->
+                    <div class="bg-gray-800 rounded-lg shadow-lg p-4 relative h-80">
+                        <div class="chart-container">
+                            <h3 class="text-lg font-semibold text-center mb-2">MACD <span class="info-icon" data-tooltip="macd-tooltip">i</span></h3>
+                            <canvas id="macdChart"></canvas>
+                             <div id="macd-tooltip" class="info-tooltip">
+                                The Moving Average Convergence Divergence (MACD) is a trend-following momentum indicator. When the blue MACD line crosses above the orange Signal line, it's a bullish signal. The bars (histogram) show the strength of the momentum.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+             <!-- Error Message -->
+            <div id="error-message" class="hidden bg-red-900 border border-red-400 text-red-100 px-4 py-3 rounded-lg relative max-w-2xl mx-auto text-center" role="alert">
+                <strong class="font-bold">Error:</strong>
+                <span class="block sm:inline" id="error-text"></span>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const fetchDataBtn = document.getElementById('fetchData');
+        const tickerInput = document.getElementById('ticker');
+        const resultsDiv = document.getElementById('results');
+        const loader = document.getElementById('loader');
+        const stockNameEl = document.getElementById('stockName');
+        const ratingEl = document.getElementById('rating');
+        const ratingExplanationEl = document.getElementById('rating-explanation');
+        const markersExplanationEl = document.getElementById('markers-explanation');
+        const errorMessageDiv = document.getElementById('error-message');
+        const errorTextEl = document.getElementById('error-text');
+        const favoritesListEl = document.getElementById('favorites-list');
+        const refreshFavoritesBtn = document.getElementById('refreshFavorites');
+        const toggleFavoriteBtn = document.getElementById('toggleFavoriteBtn');
+        const sentimentIndicatorEl = document.getElementById('sentiment-indicator');
+
+        // --- State ---
+        let chartInstances = {};
+        let favorites = [];
+        let currentTicker = '';
+        let marketSentimentFactor = 1.0; // Default neutral
+
+        // --- API Key ---
+        const API_KEY = 'DEMO';
+
+        // --- Event Listeners ---
+        fetchDataBtn.addEventListener('click', () => getStockData(tickerInput.value));
+        tickerInput.addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                getStockData(tickerInput.value);
+            }
+        });
+        toggleFavoriteBtn.addEventListener('click', () => toggleFavorite(currentTicker));
+        refreshFavoritesBtn.addEventListener('click', renderFavorites);
+        
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            loadFavorites();
+            setupInfoTooltips();
+            updateMarketSentiment();
+        });
+
+        // --- Market Sentiment ---
+        async function updateMarketSentiment() {
+            try {
+                const response = await fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey=${API_KEY}`);
+                const data = await response.json();
+                const dailyData = data['Time Series (Daily)'];
+                if (!dailyData) {
+                    sentimentIndicatorEl.textContent = 'Unavailable';
+                    sentimentIndicatorEl.className = 'text-2xl font-bold text-gray-500';
+                    return;
+                }
+                const dates = Object.keys(dailyData).reverse();
+                const closes = dates.map(date => parseFloat(dailyData[date]['4. close']));
+                const sma50 = calculateSMA(closes, 50);
+                const lastClose = closes[closes.length - 1];
+                const lastSma50 = sma50[sma50.length - 1];
+
+                if (lastClose > lastSma50) {
+                    sentimentIndicatorEl.textContent = 'Bullish';
+                    sentimentIndicatorEl.className = 'text-2xl font-bold rating-buy';
+                    marketSentimentFactor = 1.1; // Boost bullish scores
+                } else {
+                    sentimentIndicatorEl.textContent = 'Bearish';
+                    sentimentIndicatorEl.className = 'text-2xl font-bold rating-sell';
+                    marketSentimentFactor = 0.9; // Dampen bullish scores
+                }
+            } catch (e) {
+                sentimentIndicatorEl.textContent = 'Error';
+                sentimentIndicatorEl.className = 'text-2xl font-bold text-yellow-500';
+            }
+        }
+
+        // --- Favorites Management ---
+        function loadFavorites() {
+            const storedFavorites = localStorage.getItem('tradingBotFavorites');
+            if (storedFavorites) {
+                favorites = JSON.parse(storedFavorites);
+            }
+            renderFavorites();
+        }
+
+        function saveFavorites() {
+            localStorage.setItem('tradingBotFavorites', JSON.stringify(favorites));
+        }
+
+        function toggleFavorite(ticker) {
+            if (!ticker) return;
+            const index = favorites.indexOf(ticker);
+            if (index > -1) {
+                favorites.splice(index, 1);
+            } else {
+                favorites.push(ticker);
+            }
+            saveFavorites();
+            updateFavoriteButton(ticker);
+            renderFavorites();
+        }
+        
+        function updateFavoriteButton(ticker) {
+            if (favorites.includes(ticker)) {
+                toggleFavoriteBtn.innerHTML = '★';
+                toggleFavoriteBtn.title = 'Remove from Favorites';
+            } else {
+                toggleFavoriteBtn.innerHTML = '☆';
+                toggleFavoriteBtn.title = 'Add to Favorites';
+            }
+        }
+
+        async function renderFavorites() {
+            favoritesListEl.innerHTML = '';
+            if (favorites.length === 0) {
+                favoritesListEl.innerHTML = '<p class="text-gray-500 text-center">No favorites added yet.</p>';
+                return;
+            }
+            for (const ticker of favorites) {
+                const favItem = document.createElement('div');
+                favItem.className = 'flex justify-between items-center bg-gray-700 p-2 rounded-md';
+                favItem.innerHTML = `<span class="font-bold">${ticker}</span><span id="fav-rating-${ticker}" class="text-sm text-gray-400">Loading...</span>`;
+                favoritesListEl.appendChild(favItem);
+                try {
+                    const { rating } = await getRatingForTicker(ticker);
+                    const ratingEl = document.getElementById(`fav-rating-${ticker}`);
+                    if (ratingEl) {
+                        ratingEl.textContent = rating;
+                        ratingEl.className = `font-bold rating-${rating.toLowerCase()}`;
+                    }
+                } catch (error) {
+                     const ratingEl = document.getElementById(`fav-rating-${ticker}`);
+                     if(ratingEl) ratingEl.textContent = 'Error';
+                }
+            }
+        }
+
+        // --- Data Fetching and Processing ---
+        async function getStockData(tickerSymbol) {
+            currentTicker = tickerSymbol.trim().toUpperCase();
+            if (!currentTicker) {
+                showError('Please enter a stock ticker.');
+                return;
+            }
+            showLoader(true);
+            hideError();
+            resultsDiv.classList.add('hidden');
+            try {
+                const response = await fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${currentTicker}&outputsize=full&apikey=${API_KEY}`);
+                const data = await response.json();
+                if (data['Information'] || data['Note'] || data['Error Message']) {
+                    throw new Error(data['Information'] || data['Note'] || data['Error Message']);
+                }
+                const dailyData = data['Time Series (Daily)'];
+                if (!dailyData) {
+                    throw new Error(`Failed to fetch historical price data for "${currentTicker}".`);
+                }
+                processAndDisplayData(currentTicker, dailyData);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                showLoader(false);
+            }
+        }
+        
+        async function getRatingForTicker(ticker) {
+            const response = await fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${ticker}&outputsize=full&apikey=${API_KEY}`);
+            const data = await response.json();
+             if (!data['Time Series (Daily)']) {
+                throw new Error('Could not fetch rating data.');
+            }
+            const dailyData = data['Time Series (Daily)'];
+            const dates = Object.keys(dailyData).reverse();
+            const closes = dates.map(date => parseFloat(dailyData[date]['4. close']));
+            const volumes = dates.map(date => parseInt(dailyData[date]['5. volume']));
+            const sma20 = calculateSMA(closes, 20);
+            const sma50 = calculateSMA(closes, 50);
+            const volumeSma20 = calculateSMA(volumes, 20);
+            const rsi = calculateRSI(closes, 14);
+            const { macd, signal } = calculateMACD(closes);
+            const bb = calculateBollingerBands(closes, 20, 2);
+            const ratingData = { closes, rsi, macd, signal, bb };
+            return generateTradingRating(ratingData, sma20, sma50, volumes, volumeSma20);
+        }
+
+        function processAndDisplayData(ticker, dailyData) {
+            const dates = Object.keys(dailyData).reverse();
+            const closes = dates.map(date => parseFloat(dailyData[date]['4. close']));
+            const volumes = dates.map(date => parseInt(dailyData[date]['5. volume']));
+            const sma20 = calculateSMA(closes, 20);
+            const sma50 = calculateSMA(closes, 50);
+            const volumeSma20 = calculateSMA(volumes, 20);
+            const rsi = calculateRSI(closes, 14);
+            const { macd, signal, hist } = calculateMACD(closes);
+            const bb = calculateBollingerBands(closes, 20, 2);
+            
+            const displayDates = dates.slice(-200);
+            const displayCloses = closes.slice(-200);
+            const displayVolumes = volumes.slice(-200);
+            const displaySma50 = sma50.slice(-200);
+            const displayVolumeSma20 = volumeSma20.slice(-200);
+            const displayRsi = rsi.slice(-200);
+            const displayMacd = macd.slice(-200);
+            const displaySignal = signal.slice(-200);
+            const displayHist = hist.slice(-200);
+            const displayBB = { upper: bb.upper.slice(-200), middle: bb.middle.slice(-200), lower: bb.lower.slice(-200) };
+
+            const ratingData = { closes: displayCloses, rsi: displayRsi, macd: displayMacd, signal: displaySignal, bb: displayBB };
+            const { rating, explanation } = generateTradingRating(ratingData, displayBB.middle, displaySma50, displayVolumes, displayVolumeSma20);
+
+            stockNameEl.textContent = `${ticker} Analysis`;
+            ratingEl.textContent = rating;
+            ratingEl.className = `text-5xl font-bold rating-${rating.toLowerCase()}`;
+            ratingExplanationEl.textContent = explanation;
+            markersExplanationEl.innerHTML = `<span class="text-green-500">▲</span> Entry Signal &nbsp;&nbsp; <span class="text-red-500">▼</span> Exit Signal`;
+            updateFavoriteButton(ticker);
+            const chartSignals = findChartSignals(displayDates, displayCloses, displayBB.middle, displaySma50);
+
+            createOrUpdateChart('priceChart', { labels: displayDates, datasets: [ { label: 'Close Price', data: displayCloses, borderColor: '#3b82f6', borderWidth: 2, pointRadius: 0, tension: 0.1 }, { label: 'Upper Band', data: displayBB.upper, borderColor: 'rgba(167, 139, 250, 0.2)', borderWidth: 1, pointRadius: 0, fill: '+1', backgroundColor: 'rgba(167, 139, 250, 0.1)' }, { label: 'Lower Band', data: displayBB.lower, borderColor: 'rgba(167, 139, 250, 0.2)', borderWidth: 1, pointRadius: 0, fill: false }, { label: 'SMA 20 (BB Middle)', data: displayBB.middle, borderColor: '#f97316', borderWidth: 1.5, pointRadius: 0, borderDash: [5, 5] }, { label: 'SMA 50', data: displaySma50, borderColor: '#a855f7', borderWidth: 1.5, pointRadius: 0 } ] }, 'line', {}, chartSignals);
+            createOrUpdateChart('volumeChart', { labels: displayDates, datasets: [ { label: 'Volume', data: displayVolumes, backgroundColor: '#4b5563', type: 'bar' }, { label: 'Volume SMA 20', data: displayVolumeSma20, borderColor: '#f97316', borderWidth: 2, pointRadius: 0, tension: 0.1, type: 'line' } ] }, 'bar');
+            createOrUpdateChart('rsiChart', { labels: displayDates, datasets: [{ label: 'RSI', data: displayRsi, borderColor: '#10b981', borderWidth: 2, pointRadius: 0, tension: 0.1 }] }, 'line', { y: { min: 0, max: 100 } });
+            createOrUpdateChart('macdChart', { labels: displayDates, datasets: [ { label: 'MACD Histogram', data: displayHist, backgroundColor: (c) => c.raw >= 0 ? 'rgba(34, 197, 94, 0.5)' : 'rgba(239, 68, 68, 0.5)' }, { label: 'MACD', data: displayMacd, type: 'line', borderColor: '#3b82f6', borderWidth: 2, pointRadius: 0, tension: 0.1 }, { label: 'Signal Line', data: displaySignal, type: 'line', borderColor: '#f97316', borderWidth: 2, pointRadius: 0, tension: 0.1 } ] }, 'bar');
+            resultsDiv.classList.remove('hidden');
+        }
+        
+        // --- Indicator Calculation Functions ---
+        function calculateSMA(data, period) { const sma = []; for (let i = 0; i < data.length; i++) { if (i < period - 1) { sma.push(null); } else { const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0); sma.push(sum / period); } } return sma; }
+        function calculateEMA(data, period) { const multiplier = 2 / (period + 1); const ema = []; let prevEma = null; for (let i = 0; i < data.length; i++) { if (i < period - 1) { ema.push(null); continue; } if (i === period - 1) { const sum = data.slice(0, period).reduce((a, b) => a + b, 0); prevEma = sum / period; ema.push(prevEma); } else { const currentEma = (data[i] - prevEma) * multiplier + prevEma; ema.push(currentEma); prevEma = currentEma; } } return ema; }
+        function calculateRSI(data, period = 14) { const rsi = []; let avgGain = 0; let avgLoss = 0; for (let i = 1; i < data.length; i++) { const change = data[i] - data[i-1]; const gain = change > 0 ? change : 0; const loss = change < 0 ? -change : 0; if (i < period) { avgGain += gain; avgLoss += loss; rsi.push(null); } else if (i === period) { avgGain = (avgGain + gain) / period; avgLoss = (avgLoss + loss) / period; const rs = avgLoss === 0 ? 100 : avgGain / avgLoss; rsi.push(100 - (100 / (1 + rs))); } else { avgGain = (avgGain * (period - 1) + gain) / period; avgLoss = (avgLoss * (period - 1) + loss) / period; const rs = avgLoss === 0 ? 100 : avgGain / avgLoss; rsi.push(100 - (100 / (1 + rs))); } } rsi.unshift(null); return rsi; }
+        function calculateMACD(data, shortPeriod = 12, longPeriod = 26, signalPeriod = 9) { const emaShort = calculateEMA(data, shortPeriod); const emaLong = calculateEMA(data, longPeriod); const macdLine = emaShort.map((val, i) => val !== null && emaLong[i] !== null ? val - emaLong[i] : null); const signalLine = calculateEMA(macdLine.filter(v => v !== null), signalPeriod); const alignedSignal = Array(macdLine.length - signalLine.length).fill(null).concat(signalLine); const hist = macdLine.map((val, i) => val !== null && alignedSignal[i] !== null ? val - alignedSignal[i] : null); return { macd: macdLine, signal: alignedSignal, hist: hist }; }
+        function calculateBollingerBands(data, period = 20, stdDev = 2) {
+            const middle = calculateSMA(data, period);
+            const upper = [];
+            const lower = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i < period - 1) {
+                    upper.push(null);
+                    lower.push(null);
+                } else {
+                    const slice = data.slice(i - period + 1, i + 1);
+                    const mean = middle[i];
+                    const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / period;
+                    const sd = Math.sqrt(variance);
+                    upper.push(mean + sd * stdDev);
+                    lower.push(mean - sd * stdDev);
+                }
+            }
+            return { upper, middle, lower };
+        }
+
+        function generateTradingRating(data, sma20, sma50, volumes, volumeSma20) {
+            let score = 0;
+            const len = data.closes.length;
+            if (len < 50) return { rating: 'HOLD', explanation: 'Not enough data for a reliable signal.' };
+            const lastClose = data.closes[len - 1], prevClose = data.closes[len - 2], lastSma20 = sma20[len - 1], lastSma50 = sma50[len - 1], lastVolume = volumes[len - 1], lastVolumeSma20 = volumeSma20[len - 1], lastRsi = data.rsi[len - 1], lastMacd = data.macd[len - 1], lastMacdSignal = data.signal[len - 1], lastUpperBand = data.bb.upper[len-1], lastLowerBand = data.bb.lower[len-1];
+            if (lastSma20 === null || lastSma50 === null || lastRsi === null || lastMacd === null) return { rating: 'HOLD', explanation: 'Not enough historical data.' };
+            if (lastSma20 > lastSma50) score += 2; else if (lastSma20 < lastSma50) score -= 2;
+            if (lastClose > lastSma20) score += 1; if (lastClose < lastSma20) score -= 1;
+            if (lastVolume > lastVolumeSma20 * 1.5) score += (lastClose > prevClose ? 1.5 : -1.5);
+            if (lastRsi < 30 && lastClose < lastLowerBand) score += 2.5; // Stronger signal
+            else if (lastRsi < 30) score += 1.5;
+            if (lastRsi > 70 && lastClose > lastUpperBand) score -= 2.5; // Stronger signal
+            else if (lastRsi > 70) score -= 1.5;
+            if (lastMacd > lastMacdSignal) score += 2; if (lastMacd < lastMacdSignal) score -= 2;
+            
+            score *= marketSentimentFactor; // Apply market sentiment
+
+            if (score >= 3) return { rating: 'BUY', explanation: 'Strong bullish signals. Analysis is adjusted for market sentiment.' };
+            if (score <= -3) return { rating: 'SELL', explanation: 'Strong bearish signals detected. Analysis is adjusted for market sentiment.' };
+            return { rating: 'HOLD', explanation: 'Indicators are neutral or conflicting. Analysis is adjusted for market sentiment.' };
+        }
+        
+        function findChartSignals(dates, closes, sma20, sma50) {
+            const signals = [];
+            for (let i = 1; i < dates.length; i++) {
+                if (sma20[i-1] === null || sma50[i-1] === null) continue;
+                if (sma20[i-1] <= sma50[i-1] && sma20[i] > sma50[i]) {
+                    signals.push({ date: dates[i], price: closes[i], type: 'entry', reason: 'Golden Cross' });
+                }
+                if (sma20[i-1] >= sma50[i-1] && sma20[i] < sma50[i]) {
+                    signals.push({ date: dates[i], price: closes[i], type: 'exit', reason: 'Death Cross' });
+                }
+            }
+            return signals;
+        }
+
+        // --- Charting and UI Functions ---
+        function createOrUpdateChart(canvasId, data, type = 'line', scalesOptions = {}, signals = []) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            if (chartInstances[canvasId]) {
+                chartInstances[canvasId].destroy();
+            }
+            const annotations = {};
+            signals.forEach((signal, index) => {
+                annotations[`signal${index}`] = { type: 'point', xValue: signal.date, yValue: signal.price, backgroundColor: signal.type === 'entry' ? 'rgba(34, 197, 94, 0.7)' : 'rgba(239, 68, 68, 0.7)', borderColor: signal.type === 'entry' ? '#22c55e' : '#ef4444', radius: 6, pointStyle: 'triangle', rotation: signal.type === 'entry' ? 0 : 180, label: { content: signal.reason, enabled: true, position: 'start', yAdjust: signal.type === 'entry' ? -15 : 15, backgroundColor: 'rgba(0,0,0,0.7)', font: { size: 10 } } }
+            });
+            chartInstances[canvasId] = new Chart(ctx, {
+                type: type,
+                data: data,
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { x: { type: 'time', time: { unit: 'month' }, ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } }, y: { ...scalesOptions, ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255, 255, 255, 0.1)' } } }, plugins: { legend: { display: false }, tooltip: { titleColor: '#ffffff', bodyColor: '#d1d5db', backgroundColor: '#1f2937', borderColor: '#4b5563', borderWidth: 1 }, annotation: { annotations: annotations } } }
+            });
+        }
+        
+        function setupInfoTooltips() {
+            document.querySelectorAll('.info-icon').forEach(icon => {
+                const tooltipId = icon.dataset.tooltip;
+                const tooltip = document.getElementById(tooltipId);
+                icon.addEventListener('mouseenter', () => tooltip.style.display = 'block');
+                icon.addEventListener('mouseleave', () => tooltip.style.display = 'none');
+            });
+        }
+
+        function showLoader(show) { loader.classList.toggle('hidden', !show); }
+        function showError(message) { errorTextEl.textContent = message; errorMessageDiv.classList.remove('hidden'); }
+        function hideError() { errorMessageDiv.classList.add('hidden'); }
+    </script>
+
+</body>
+</html>
