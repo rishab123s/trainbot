@@ -95,6 +95,12 @@
         </header>
 
         <main>
+             <!-- Market Sentiment Section -->
+            <div id="sentiment-section" class="bg-gray-800 rounded-lg shadow-lg p-4 mb-8 max-w-4xl mx-auto text-center hidden">
+                 <h2 class="text-xl font-semibold mb-2">Market Sentiment (S&P 500)</h2>
+                 <div id="sentiment-indicator" class="text-2xl font-bold text-gray-400">Loading...</div>
+            </div>
+
             <!-- Input Section -->
             <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8 max-w-4xl mx-auto">
                 <div class="flex flex-col sm:flex-row gap-4 items-center">
@@ -166,6 +172,8 @@
         const loader = document.getElementById('loader');
         const errorMessageDiv = document.getElementById('error-message');
         const errorTextEl = document.getElementById('error-text');
+        const sentimentSectionEl = document.getElementById('sentiment-section');
+        const sentimentIndicatorEl = document.getElementById('sentiment-indicator');
         let chartInstances = {};
         let currentTicker = '';
         let dailyDataCache = null; // Cache daily data for intraday tab
@@ -201,21 +209,29 @@
             showLoader(true);
             hideError();
             mainContentEl.classList.add('hidden');
-            intradayDataLoaded = false; // Reset flag for new stock
-            
-            // Reset tabs to default state
+            sentimentSectionEl.classList.add('hidden');
+            intradayDataLoaded = false; 
             document.querySelector('.tab-btn[data-tab="long-term"]').click();
 
             try {
-                // ONLY fetch daily data initially
-                const dailyRes = await fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${currentTicker}&outputsize=full&apikey=${API_KEY}`);
+                const [dailyRes, marketRes] = await Promise.all([
+                    fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${currentTicker}&outputsize=full&apikey=${API_KEY}`),
+                    fetch(`https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey=${API_KEY}`)
+                ]);
+
                 const dailyData = await dailyRes.json();
+                const marketData = await marketRes.json();
+
                 validateApiResponse(dailyData, "Daily");
+                validateApiResponse(marketData, "Market Sentiment");
                 
-                dailyDataCache = dailyData['Time Series (Daily)']; // Cache for later
+                updateMarketSentiment(marketData['Time Series (Daily)']);
+                dailyDataCache = dailyData['Time Series (Daily)'];
                 processLongTermData(currentTicker, dailyDataCache);
                 
                 mainContentEl.classList.remove('hidden');
+                sentimentSectionEl.classList.remove('hidden');
+
             } catch (error) {
                 showError(error.message);
             } finally {
@@ -224,13 +240,12 @@
         }
         
         async function handleIntradayTabClick() {
-            // Activate tab UI first
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             this.classList.add('active');
             document.getElementById('intraday-content').classList.add('active');
 
-            if (intradayDataLoaded) return; // Don't re-fetch if already loaded
+            if (intradayDataLoaded) return;
 
             const intradayContainer = document.getElementById('intraday-content');
             intradayContainer.innerHTML = '<div class="text-center p-8">Loading Intraday Data...</div>';
@@ -245,7 +260,6 @@
 
                 validateApiResponse(intradayData, "Intraday");
                 
-                // Inject the HTML structure for the intraday tab
                 intradayContainer.innerHTML = `
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                         <div class="md:col-span-2 space-y-8">
@@ -258,7 +272,7 @@
                         </div>
                     </div>`;
                 
-                setupInfoTooltips(); // Re-initialize tooltips for new elements
+                setupInfoTooltips();
                 processIntradayData(currentTicker, intradayData['Time Series (15min)'], dailyDataCache);
                 processNewsData(newsData);
                 intradayDataLoaded = true;
@@ -271,6 +285,28 @@
         function validateApiResponse(data, type) {
             if (data['Information'] || data['Note'] || data['Error Message']) {
                 throw new Error(`API Error (${type}): ${data['Information'] || data['Note'] || data['Error Message']}`);
+            }
+        }
+
+        // --- Market Sentiment ---
+        function updateMarketSentiment(dailyData) {
+            if (!dailyData) {
+                sentimentIndicatorEl.textContent = 'Unavailable';
+                sentimentIndicatorEl.className = 'text-2xl font-bold text-gray-500';
+                return;
+            }
+            const dates = Object.keys(dailyData).reverse();
+            const closes = dates.map(date => parseFloat(dailyData[date]['4. close']));
+            const sma50 = calculateSMA(closes, 50);
+            const lastClose = closes[closes.length - 1];
+            const lastSma50 = sma50[sma50.length - 1];
+
+            if (lastClose > lastSma50) {
+                sentimentIndicatorEl.textContent = 'Bullish';
+                sentimentIndicatorEl.className = 'text-2xl font-bold rating-buy';
+            } else {
+                sentimentIndicatorEl.textContent = 'Bearish';
+                sentimentIndicatorEl.className = 'text-2xl font-bold rating-sell';
             }
         }
 
